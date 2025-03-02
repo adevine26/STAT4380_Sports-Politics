@@ -1,0 +1,767 @@
+---
+title: "new idea working code"
+author: "Amelie Devine"
+date: "2024-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+```
+
+## read in data, exploratory analysis
+```{r}
+data <- read_csv("sports-political-donations.csv")
+
+summary(data)
+
+# changing Amount to numeric
+data <- data %>% 
+    mutate(money = str_remove(Amount, "^\\$"),
+           money = str_remove_all(money, ","),
+           money = ifelse(is.na(money), "0", money),
+           money = as.numeric(money),
+           `Election Year` = as.factor(`Election Year`)) %>% 
+    rename(Year = `Election Year`)
+```
+
+
+## exploratory graphs
+```{r}
+ggplot(data, aes(x = Year, y = money, fill = Party)) +
+    geom_bar(stat = "identity", position = "dodge")
+
+ggplot(data, aes(x = Year, y = money, fill = League)) +
+    geom_bar(stat = "identity", position = "dodge")
+
+data %>% 
+    filter(League == "MLB" | League == "NASCAR" | League == "NHL" | League == "NBA" |
+               League == "WNBA" | League == "NFL") %>%
+    mutate(money = money / 1000000) %>% 
+    ggplot(aes(x = Year, y = money, fill = League)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(y = "Money Donated, in millions",
+         title = "Political Contributions by League",
+         subtitle = "Doesn't Account for Ties to Multiple Leagues") +
+    theme_bw()
+```
+
+## consider left, right, ind, bipartisan (break into 4 categories)
+```{r}
+unique(data$Party)
+
+cat <- data %>% 
+    filter(Party != "N/A") %>% 
+    mutate(Party_Cat = ifelse(Party == "Democrat", "Democratic", 
+                              ifelse(Party == "Bipartisan", "Bipartisan", 
+                                     ifelse(Party == "Bipartisan, but mostly Republican", "Republican",
+                                            ifelse(Party == "Independent", "Independent", 
+                                                   ifelse(Party == "Bipartisan, but mostly Democratic", 
+                                                          "Democratic", 
+                                                          ifelse(Party == "Republican", "Republican",
+                                                                 "N/A")))))))
+
+cat2 <- cat %>% 
+    group_by(Year, Party_Cat) %>% 
+    summarize(money = sum(money)) %>% 
+    mutate(money_mil = money / 1000000,
+           money_mil_log = log10(money_mil))  
+
+party_colors <- c("Bipartisan" = "#FF00FF",
+                  "Democratic" = "#1c93ed",
+                  "Independent" = "#ffd966",
+                  "Republican" = "#dd3529")
+
+ggplot(cat2, aes(x = Year, y = money + 1, fill = Party_Cat)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = party_colors) +
+    scale_y_continuous(trans = "log10") +
+    theme_bw() +
+    labs(y = "Money Donated",
+         fill = "Political Party",
+         title = "Overall Political Contributions")
+```
+
+## look at actual election results for 2nd dataset
+
+```{r}
+commiss <- cat %>% 
+    filter(Team == "Commissioner")
+
+single_league <- cat %>% 
+    filter(League == "NFL" | League == "NBA" | League == "WNBA" | League == "NHL" |
+               League == "MLB" | League == "NASCAR")
+
+multi_league <- cat %>% 
+    filter(League != "NFL" & League != "NBA" & League != "WNBA" & League != "NHL" &
+               League != "MLB" & League != "NASCAR")
+
+ggplot(commiss, aes(x = Year, y = money, fill = Party_Cat)) +
+    geom_bar(stat = "identity", position = "dodge")
+
+ggplot(single_league, aes(x = Year, y = money, fill = Party_Cat)) +
+    geom_bar(stat = "identity", position = "dodge")
+
+ggplot(multi_league, aes(x = Year, y = money, fill = Party_Cat)) +
+    geom_bar(stat = "identity", position = "dodge")
+
+```
+# women's sports vs men's sports
+```{r}
+cat <- data %>% 
+    filter(Party != "N/A") %>% 
+    mutate(Party_Cat = ifelse(Party == "Democrat", "Democratic", 
+                              ifelse(Party == "Bipartisan", "Bipartisan", 
+                                     ifelse(Party == "Bipartisan, but mostly Republican", "Republican",
+                                            ifelse(Party == "Independent", "Independent", 
+                                                   ifelse(Party == "Bipartisan, but mostly Democratic", 
+                                                          "Democratic", 
+                                                          ifelse(Party == "Republican", "Republican",
+                                                                 "N/A")))))))
+w_sports <- cat %>% 
+    filter(grepl("WNBA", League)) %>% 
+    mutate(money = money / 1000000)
+
+m_sports <- cat$Owner[!(cat$Owner %in% w_sports$Owner)]
+m_sports <- cat[cat$Owner %in% m_sports, ] %>% 
+    mutate(money = money / 1000000)
+
+cat <- cat %>% 
+    mutate(gender = ifelse(grepl("WNBA", League), "W", "M"),
+           money_mil = money / 1000000)
+
+custom_labels <- c("M" = "Men's Sports Leagues", "W" = "Women's Sports Leagues")
+
+ggplot(cat, aes(x = Year, y = money_mil, fill = Party_Cat)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = party_colors) +
+    facet_wrap(~ gender, nrow = 1, scales = "free_y", labeller = as_labeller(custom_labels)) +
+    theme_bw() +
+    labs(y = "Money Donated, in millions",
+         fill = "Political Party",
+         title = "Political Contributions for Men's vs Women's Sports Leagues")
+
+ ## work here for women's sports vs men's sports donation types
+```
+
+```{r}
+dif_party <- cat %>% 
+    group_by(Owner, Party_Cat) %>% 
+    summarize(money = sum(money)) 
+```
+
+
+
+# Election Results - 2016 !!!
+```{r}
+pres_results_2016 <- read_csv("federalelections2016/electoral_and_popvote.csv")
+
+pres_results_2016 <- pres_results_2016 %>%
+    mutate(electoral_vote_trump_r = ifelse(is.na(`ELECTORAL_VOTE_TRUMP(R)`), 0, `ELECTORAL_VOTE_TRUMP(R)`),
+           electoral_vote_clinton_d = ifelse(is.na(`ELECTORAL_VOTE_CLINTON(D)`), 0, `ELECTORAL_VOTE_CLINTON(D)`),
+           popular_vote_trump_r = ifelse(is.na(`POPULAR_VOTE_TRUMP(R)`), 0, `POPULAR_VOTE_TRUMP(R)`),
+           popular_vote_clinton_d = ifelse(is.na(`POPULAR_VOTE_CLINTON(D)`), 0, `POPULAR_VOTE_CLINTON(D)`),
+           popular_vote_all_others = ifelse(is.na(POPULAR_VOTE_ALL_OTHERS), 0, POPULAR_VOTE_ALL_OTHERS),
+           popular_vote_total = ifelse(is.na(POPULAR_VOTE_TOTAL), 0, POPULAR_VOTE_TOTAL)) %>% 
+    select(STATE, electoral_vote_trump_r, electoral_vote_clinton_d, popular_vote_trump_r, popular_vote_clinton_d,
+           popular_vote_all_others, popular_vote_total)
+
+pres_results_2016 <- pres_results_2016[-nrow(pres_results_2016), ]
+
+pres_results_2016 <- pres_results_2016 %>% 
+    filter(rowSums(is.na(.)) < ncol(pres_results_2016) - 1) %>% 
+    mutate(pres_pop_vote_trump_r = str_remove_all(popular_vote_trump_r, ","),
+           pres_pop_vote_clinton_d = str_remove_all(popular_vote_clinton_d, ","),
+           pres_pop_vote_all_others = str_remove_all(popular_vote_all_others, ","))
+
+
+houseofreps_2016 <- read_csv("federalelections2016/houseofreps.csv")
+houseofreps_2016 <- houseofreps_2016 %>% 
+    filter(rowSums(is.na(.)) < ncol(houseofreps_2016) - 1) %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(house_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           house_republican = GENERAL_ELECTION_REPUBLICAN,
+           house_other = GENERAL_ELECTION_OTHER)
+
+senate_2016 <- read_csv("federalelections2016/senate.csv") 
+senate_2016 <- senate_2016 %>% 
+    filter(rowSums(is.na(.)) < ncol(senate_2016) - 1) %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(senate_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           senate_republican = GENERAL_ELECTION_REPUBLICAN,
+           senate_other = GENERAL_ELECTION_OTHER)
+           
+
+all_2016 <- senate_2016 %>% 
+    left_join(houseofreps_2016, by = "State") %>% 
+    select(State, house_democratic, house_republican, house_other, 
+           senate_democratic, senate_republican, senate_other) %>% 
+    left_join(pres_results_2016, by = c("State" = "STATE")) %>% 
+    replace_na(list(house_republican = 0, house_other = 0, senate_republican = 0, senate_other = 0)) %>% 
+    mutate(house_result = ifelse(house_democratic > house_republican & house_democratic > house_other,
+                                 "D",
+                                 ifelse(house_republican > house_democratic & house_republican > house_other,
+                                        "R",
+                                        "Other")),
+           senate_result = ifelse(senate_democratic > senate_republican & senate_democratic > senate_other,
+                                 "D",
+                                 ifelse(senate_republican > senate_democratic & senate_republican > senate_other,
+                                        "R",
+                                        "Other")),
+           pres_result = ifelse(electoral_vote_trump_r > electoral_vote_clinton_d, "R", "D"))
+```
+
+
+# Election Results - 2018 !!!
+```{r}
+houseofreps_2018 <- read_csv("federalelections2018/houseofreps18.csv")
+houseofreps_2018 <- houseofreps_2018 %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(house_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           house_republican = GENERAL_ELECTION_REPUBLICAN,
+           house_other = GENERAL_ELECTION_OTHER) %>% 
+    filter(rowSums(is.na(.)) < ncol(houseofreps_2018) - 1)
+
+senate_2018 <- read_csv("federalelections2018/senate18.csv")
+senate_2018 <- senate_2018 %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(senate_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           senate_republican = GENERAL_ELECTION_REPUBLICAN,
+           senate_other = GENERAL_ELECTION_OTHER) %>% 
+    filter(rowSums(is.na(.)) < ncol(senate_2018) - 1)
+           
+
+all_2018 <- senate_2018 %>% 
+    left_join(houseofreps_2018, by = "State") %>% 
+    select(State, house_democratic, house_republican, house_other, 
+           senate_democratic, senate_republican, senate_other) %>% 
+    replace_na(list(house_other = 0, senate_democratic = 0, senate_republican = 0, senate_other = 0)) %>% 
+    mutate(house_result = ifelse(house_democratic > house_republican & house_democratic > house_other,
+                                 "D",
+                                 ifelse(house_republican > house_democratic & house_republican > house_other,
+                                        "R",
+                                        "Other")),
+           senate_result = ifelse(senate_democratic > senate_republican & senate_democratic > senate_other,
+                                 "D",
+                                 ifelse(senate_republican > senate_democratic & senate_republican > senate_other,
+                                        "R",
+                                        "Other")))
+```
+
+
+# Election Results - 2020 !!!
+```{r}
+pres_results_2020 <- read_csv("federalelections2020/electoral_and_popvote20.csv")
+
+pres_results_2020 <- pres_results_2020 %>%
+    mutate(electoral_vote_trump_r = ifelse(is.na(`ELECTORAL_VOTE_TRUMP(R)`), 0, `ELECTORAL_VOTE_TRUMP(R)`),
+           electoral_vote_biden_d = ifelse(is.na(`ELECTORAL_VOTE_BIDEN(D)`), 0, `ELECTORAL_VOTE_BIDEN(D)`),
+           popular_vote_trump_r = ifelse(is.na(`POPULAR_VOTE_TRUMP(R)`), 0, `POPULAR_VOTE_TRUMP(R)`),
+           popular_vote_biden_d = ifelse(is.na(`POPULAR_VOTE_BIDEN(D)`), 0, `POPULAR_VOTE_BIDEN(D)`),
+           popular_vote_all_others = ifelse(is.na(POPULAR_VOTE_ALL_OTHERS), 0, POPULAR_VOTE_ALL_OTHERS),
+           popular_vote_total = ifelse(is.na(POPULAR_VOTE_TOTAL), 0, POPULAR_VOTE_TOTAL)) %>% 
+    select(STATE, electoral_vote_trump_r, electoral_vote_biden_d, popular_vote_trump_r, popular_vote_biden_d,
+           popular_vote_all_others, popular_vote_total)
+
+pres_results_2020 <- pres_results_2020 %>% 
+    mutate(pres_pop_vote_trump_r = str_remove_all(popular_vote_trump_r, ","),
+           pres_pop_vote_biden_d = str_remove_all(popular_vote_biden_d, ","),
+           pres_pop_vote_all_others = str_remove_all(popular_vote_all_others, ",")) %>% 
+    filter(rowSums(is.na(.)) < ncol(pres_results_2020) - 1)
+
+
+houseofreps_2020 <- read_csv("federalelections2020/houseofreps20.csv") 
+houseofreps_2020 <- houseofreps_2020 %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(house_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           house_republican = GENERAL_ELECTION_REPUBLICAN,
+           house_other = GENERAL_ELECTION_OTHER) %>% 
+    filter(rowSums(is.na(.)) < ncol(houseofreps_2020) - 1)
+
+senate_2020 <- read_csv("federalelections2020/senate20.csv") 
+senate_2020 <- senate_2020 %>% 
+    select(State, GENERAL_ELECTION_DEMOCRATIC, GENERAL_ELECTION_REPUBLICAN, GENERAL_ELECTION_OTHER) %>% 
+    mutate(senate_democratic = GENERAL_ELECTION_DEMOCRATIC,
+           senate_republican = GENERAL_ELECTION_REPUBLICAN,
+           senate_other = GENERAL_ELECTION_OTHER) %>% 
+    filter(rowSums(is.na(.)) < ncol(senate_2020) - 1)
+           
+
+all_2020 <- senate_2020 %>% 
+    left_join(houseofreps_2020, by = "State") %>% 
+    select(State, house_democratic, house_republican, house_other, 
+           senate_democratic, senate_republican, senate_other) %>% 
+    left_join(pres_results_2020, by = c("State" = "STATE")) %>% 
+    replace_na(list(house_other = 0, senate_democratic = 0, senate_other = 0)) %>% 
+    mutate(house_result = ifelse(house_democratic > house_republican & house_democratic > house_other,
+                                 "D",
+                                 ifelse(house_republican > house_democratic & house_republican > house_other,
+                                        "R",
+                                        "Other")),
+           senate_result = ifelse(senate_democratic > senate_republican & senate_democratic > senate_other,
+                                 "D",
+                                 ifelse(senate_republican > senate_democratic & senate_republican > senate_other,
+                                        "R",
+                                        "Other")),
+           pres_result = ifelse(electoral_vote_trump_r > electoral_vote_biden_d, "R", "D"))
+```
+
+
+results!
+```{r}
+result16 <- all_2016 %>% 
+    filter(State == "Total:") %>% 
+    mutate(year = 2016) %>% 
+    select(year, house_result, senate_result, pres_result) 
+
+pres16 <- all_2016 %>% 
+    filter(State == "Total:") %>% 
+    mutate(year = 2016) %>% 
+    select(year, pres_result)
+
+result18 <- all_2018 %>% 
+    filter(State == "Total:") %>% 
+    mutate(year = 2018) %>% 
+    select(year, house_result, senate_result)
+
+result20 <- all_2020 %>% 
+    filter(State == "Total:") %>% 
+    mutate(year = 2020) %>% 
+    select(year, house_result, senate_result, pres_result)
+
+pres20 <- all_2020 %>% 
+    filter(State == "Total:") %>% 
+    mutate(year = 2020) %>% 
+    select(year, pres_result)
+
+results <- bind_rows(
+  mutate(result16, year = 2016),
+  mutate(result18, year = 2018),
+  mutate(result20, year = 2020)
+)
+
+```
+
+
+## votes for republicans vs money for republican
+```{r}
+total_2016 <- all_2016 %>% 
+    mutate(house_dem = house_democratic, 
+           house_rep = house_republican,
+           house_other = house_other,
+           senate_dem = senate_democratic,
+           senate_rep = senate_republican,
+           senate_other = senate_other,
+           electoral_rep = electoral_vote_trump_r,
+           electoral_dem = electoral_vote_clinton_d,
+           popular_rep = pres_pop_vote_trump_r,
+           popular_dem = pres_pop_vote_clinton_d,
+           popular_other = pres_pop_vote_all_others,
+           house = house_result,
+           senate = senate_result,
+           pres = pres_result,
+           year = 2016) %>%
+    filter(State == "Total:") %>% 
+    select(year, house_dem, house_rep, house_other, senate_dem, senate_rep, senate_other,
+           electoral_rep, electoral_dem, popular_rep, popular_dem, popular_other,
+           house, senate, pres)
+
+total_2018 <- all_2018 %>% 
+    mutate(house_dem = house_democratic, 
+           house_rep = house_republican,
+           house_other = house_other,
+           senate_dem = senate_democratic,
+           senate_rep = senate_republican,
+           senate_other = senate_other,
+           house = house_result,
+           senate = senate_result,
+           year = 2018) %>%
+    filter(State == "Total:") %>% 
+    select(year, house_dem, house_rep, house_other, senate_dem, senate_rep, senate_other,
+           house, senate)
+
+total_2020 <- all_2020 %>% 
+    mutate(house_dem = house_democratic, 
+           house_rep = house_republican,
+           house_other = house_other,
+           senate_dem = senate_democratic,
+           senate_rep = senate_republican,
+           senate_other = senate_other,
+           electoral_rep = electoral_vote_trump_r,
+           electoral_dem = electoral_vote_biden_d,
+           popular_rep = pres_pop_vote_trump_r,
+           popular_dem = pres_pop_vote_biden_d,
+           popular_other = pres_pop_vote_all_others,
+           house = house_result,
+           senate = senate_result,
+           pres = pres_result,
+           year = 2020) %>%
+    filter(State == "Total:") %>% 
+    select(year, house_dem, house_rep, house_other, senate_dem, senate_rep, senate_other,
+           electoral_rep, electoral_dem, popular_rep, popular_dem, popular_other,
+           house, senate, pres)
+
+totals <- bind_rows(
+  mutate(total_2016, year = 2016),
+  mutate(total_2018, year = 2018),
+  mutate(total_2020, year = 2020)
+)
+
+totals <- totals %>% 
+    mutate(popular_rep = as.numeric(popular_rep),
+           popular_dem = as.numeric(popular_dem),
+           popular_other = as.numeric(popular_other),
+           total_dems = ifelse(is.na(popular_dem),
+                               house_dem + senate_dem,
+                               house_dem + senate_dem + popular_dem),
+           total_reps = ifelse(is.na(popular_rep),
+                               house_rep + senate_rep, 
+                               house_rep + senate_rep + popular_rep),
+           total_other = ifelse(is.na(popular_other),
+                                house_other + senate_other,
+                                house_other + senate_other + popular_other),
+           year = as.factor(year))
+
+
+cat2_wide <- pivot_wider(cat2, names_from = Party_Cat, values_from = money)
+money_donated <- cat2_wide %>% 
+    mutate(other_money = ifelse(is.na(Independent),
+                               Bipartisan,
+                               Bipartisan + Independent),
+           dem_money = Democratic,
+           rep_money = Republican) %>% 
+    select(Year, other_money, dem_money, rep_money)
+
+money_v_votes <- totals %>% 
+    left_join(money_donated, by = c("year" = "Year"))
+
+money_votes2 <- cat2 %>% 
+    left_join(totals, by = c("Year" = "year")) %>% 
+    mutate(votes = ifelse(Party_Cat == "Democratic", total_dems, 
+                          ifelse(Party_Cat == "Republican", total_reps,
+                                 total_other)),
+           money_mil = money / 1000000,
+           votes_mil = votes / 1000000,
+           Party_Cat = ifelse(Party_Cat == "Democratic", "Democratic",
+                              ifelse(Party_Cat == "Republican", "Republican", 
+                                     "Other")))
+
+
+
+party_colors2 <- c("Democratic" = "#1c93ed",
+                  "Other" = "#ffd966",
+                  "Republican" = "#dd3529")
+
+ggplot(money_votes2, aes(x = Year, y = votes_mil, group = Party_Cat, color = Party_Cat)) +
+    geom_point(size = 2.5) +
+    geom_line(linewidth = 0.9) +
+    scale_color_manual(values = party_colors2) +
+    theme_bw() +
+    labs(y = "Total Number of Votes, in millions",
+         title = "Total Votes by Party Over the Time",
+         subtitle = "Sum of Congressional & Presidential Election Votes Cast",
+         color = "Political Party",
+         caption = "There was no Presidential Election in 2018, so fewer votes were cast")
+
+```
+
+```{r}
+mv2_long <- pivot_longer(money_votes2, cols = c(money_mil, votes_mil), names_to = "Type", values_to = "Value") %>%
+    select(Year, Party_Cat, Type, Value)
+
+ggplot(mv2_long, aes(x = Year, y = Value, fill = Type)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  facet_wrap(~ Party_Cat, scales = "free_y") +
+  labs(x = "Year", y = "Amount, in millions",
+       title = "Votes and Money by Party Over Time",
+       fill = "") +
+  scale_fill_manual(values = c("votes_mil" = "purple", "money_mil" = "green"), 
+                    labels = c("Money Donated", "Votes")) + 
+  theme_bw()
+
+
+```
+
+
+```{r}
+unique(data$Recipient)
+
+biden <- cat %>% 
+    filter(grepl("Biden", Recipient))
+
+trump <- cat %>% 
+    filter(grepl("Trump", Recipient))
+
+clinton <- cat %>% 
+    filter(grepl("Hillary", Recipient))
+
+pres <- cat %>% 
+    filter((Recipient %in% biden$Recipient) |
+               (Recipient %in% trump$Recipient) |
+               (Recipient %in% clinton$Recipient)) %>% 
+    mutate(Recipient = ifelse(Recipient %in% biden$Recipient, "Biden", 
+                              ifelse(Recipient %in% trump$Recipient, "Trump",
+                                     "Clinton")),
+           League_Primary = str_extract(League, "^[^,]+"))
+
+ggplot(pres, aes(x = Recipient, y = money_mil, fill = League_Primary)) +
+    geom_bar(stat = "identity") +
+    theme_bw() +
+    labs(x = "Presidential Candidate",
+         y = "Money Donated, in millions",
+         title = "Political Donations to Presidential Candidates",
+         subtitle = "2016 and 2020",
+         fill = "Sports League")
+
+pres_graph <- pres %>% 
+    left_join(totals, by = c("Year" = "year")) %>% 
+    select(Recipient, Year, Party, money, electoral_rep, electoral_dem) %>% 
+    mutate(electoral_votes = ifelse(Party == "Democrat", electoral_dem, electoral_rep))
+```
+
+```{r}
+custom_label2 = c("2016" = "2016", "2018" = "2016", "2020" = "2020")
+
+
+## NFL Donations (Colin Kaepernick ~ 2016)
+cat %>% 
+    filter(grepl("NFL", League)) %>% 
+    ggplot(aes(x = Party_Cat, y = money_mil, fill = Party_Cat)) +
+    geom_bar(stat = "identity") +
+    theme_bw() +
+    scale_fill_manual(values = party_colors, name = "Political Party") +
+    facet_wrap(~ Year, nrow = 1, labeller = labeller(custom_labels)) +
+    theme(axis.text.x = element_blank()) +
+    labs(x = "", 
+         y = "Money Donated, in millions",
+         title = "NFL Donations") 
+
+## NBA Donations (BLM ~ 2020)
+cat %>% 
+    filter(grepl("NBA", League)) %>% 
+    ggplot(aes(x = Party_Cat, y = money_mil, fill = Party_Cat)) +
+    geom_bar(stat = "identity") +
+    theme_bw() +
+    scale_fill_manual(values = party_colors, name = "Political Party") +
+    facet_wrap(~ Year, nrow = 1, labeller = labeller(custom_labels)) +
+    theme(axis.text.x = element_blank()) +
+    labs(x = "", 
+         y = "Money Donated, in millions",
+         title = "NBA Donations") 
+
+## NASCAR
+cat %>% 
+    filter(grepl("NASCAR", League)) %>% 
+    ggplot(aes(x = Party_Cat, y = money_mil, fill = Party_Cat)) +
+    geom_bar(stat = "identity") +
+    theme_bw() +
+    scale_fill_manual(values = party_colors, name = "Political Party") +
+    facet_wrap(~ Year, nrow = 1, labeller = labeller(custom_labels)) +
+    theme(axis.text.x = element_blank()) +
+    labs(x = "", 
+         y = "Money Donated, in millions",
+         title = "NASCAR Donations")
+```
+
+```{r}
+data %>% 
+    group_by(Owner) %>% 
+    summarize(money = sum(money)) %>% 
+    mutate(money_mil = money / 1000000) %>% 
+    ggplot(aes(x = money_mil)) +
+    geom_histogram(binwidth = 0.5)
+
+min(data$money)
+max(data$money)
+```
+
+## correlation?? donation amount, league, party?
+cor(x = money_votes2$money, y = money_votes2$votes)
+
+
+
+```{r}
+cor(x = money_votes2$money, y = as.numeric((money_votes2$Year)))
+```
+
+
+
+money_votes2 %>% 
+    ggplot(aes(x = money_mil, y = votes_mil)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    theme_bw() +
+    labs(x = "Money Donated, in millions",
+         y = "Votes, in millions",
+         title = "Money Donated vs Votes",
+         subtitle = "Searching for Relationship")
+```{r}
+v_pie16 <- totals %>% 
+    filter(year == 2016) %>% 
+    select(total_dems, total_reps, total_other) %>%
+    pivot_longer(cols = c(total_dems, total_reps, total_other),
+                 names_to = "party", values_to = "votes") %>% 
+    mutate(perc = (votes / (sum(votes)))*100)
+
+m_pie16 <- money_donated %>% 
+    filter(Year == 2016) %>% 
+    select(other_money, dem_money, rep_money) %>% 
+    pivot_longer(cols = c(dem_money, rep_money, other_money),
+                 names_to = "party", values_to = "money") %>% 
+    mutate(perc = (money / (sum(money)))*100)
+
+m_pie16 <- m_pie16 %>% 
+    filter(!is.na(money))
+
+v16 <- ggplot(v_pie16, aes(x = "", y = votes, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Votes for Party (2016)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican"))
+
+m16 <- ggplot(m_pie16, aes(x = "", y = money, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Money Donated to Party (2016)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican")) +
+    theme(legend.position = "none")
+
+gridExtra::grid.arrange(v16, m16, nrow = 1, widths = c(1.35, 1))  
+
+## 2018
+v_pie18 <- totals %>% 
+    filter(year == 2018) %>% 
+    select(total_dems, total_reps, total_other) %>%
+    pivot_longer(cols = c(total_dems, total_reps, total_other),
+                 names_to = "party", values_to = "votes") %>% 
+    mutate(perc = (votes / (sum(votes)))*100)
+
+m_pie18 <- money_donated %>% 
+    filter(Year == 2018) %>% 
+    select(other_money, dem_money, rep_money) %>% 
+    pivot_longer(cols = c(dem_money, rep_money, other_money),
+                 names_to = "party", values_to = "money") %>% 
+    mutate(perc = (money / (sum(money)))*100)
+
+m_pie18 <- m_pie18 %>% 
+    filter(!is.na(money)) %>% 
+    mutate(perc = (money / (sum(money)))*100)
+
+v18 <- ggplot(v_pie18, aes(x = "", y = votes, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Votes for Party (2018)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican"))
+
+m18 <- ggplot(m_pie18, aes(x = "", y = money, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Money Donated to Party (2018)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican")) +
+    theme(legend.position = "none")
+
+gridExtra::grid.arrange(v18, m18, nrow = 1, widths = c(1.35, 1))
+
+## 2020
+v_pie20 <- totals %>% 
+    filter(year == 2020) %>% 
+    select(total_dems, total_reps, total_other) %>%
+    pivot_longer(cols = c(total_dems, total_reps, total_other),
+                 names_to = "party", values_to = "votes") %>% 
+    mutate(perc = (votes / (sum(votes)))*100)
+
+m_pie20 <- money_donated %>% 
+    filter(Year == 2020) %>% 
+    select(other_money, dem_money, rep_money) %>% 
+    pivot_longer(cols = c(dem_money, rep_money, other_money),
+                 names_to = "party", values_to = "money")
+m_pie20 <- m_pie20 %>% 
+    filter(!is.na(money)) %>% 
+    mutate(perc = (money / (sum(money)))*100)
+
+v20 <- ggplot(v_pie20, aes(x = "", y = votes, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Votes for Party (2020)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican"))
+
+m20 <- ggplot(m_pie20, aes(x = "", y = money, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Money Donated to Party (2020)", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican")) +
+    theme(legend.position = "none")
+
+gridExtra::grid.arrange(v20, m20, nrow = 1, widths = c(1.35, 1))
+
+
+## all
+v_pie <- totals %>% 
+    select(total_dems, total_reps, total_other) %>%
+    pivot_longer(cols = c(total_dems, total_reps, total_other),
+                 names_to = "party", values_to = "votes") %>% 
+    group_by(party) %>% 
+    summarize(votes = sum(votes)) %>% 
+    mutate(perc = (votes / (sum(votes)))*100)
+
+m_pie <- money_donated %>% 
+    select(other_money, dem_money, rep_money) %>% 
+    pivot_longer(cols = c(dem_money, rep_money, other_money),
+                 names_to = "party", values_to = "money")
+
+m_pie <- m_pie %>% 
+    filter(!is.na(money)) %>% 
+    group_by(party) %>% 
+    summarize(money = sum(money, na.rm=TRUE)) %>% 
+    mutate(perc = (money / (sum(money)))*100)
+
+v <- ggplot(v_pie, aes(x = "", y = votes, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Votes for Party", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican"))
+
+m <- ggplot(m_pie, aes(x = "", y = money, fill = party)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(perc, digits = 1), "%")), 
+            position = position_stack(vjust = 0.5)) +
+    coord_polar("y") +
+    theme_void() +
+    labs(title = "Money Donated to Party", fill = "Political Party") +
+    scale_fill_manual(values = c("#1c93ed", "#ffd966", "#dd3529"),
+                    labels = c("Democratic", "Other", "Republican")) +
+    theme(legend.position = "none")
+
+gridExtra::grid.arrange(v, m, nrow = 1, widths = c(1.35, 1))
+```
+
+## pie chart: votes for senate, house, presidency by party
+## pie chart: money for dem, rep, other
